@@ -1603,7 +1603,7 @@ data class CanvasTitleChangedAction(
     val revision: Long
 )
 
-@Serializable
+@Serializable(with = CanvasIconChangedActionSerializer::class)
 data class CanvasIconChangedAction(
     val type: ActionType,
     /**
@@ -1615,6 +1615,45 @@ data class CanvasIconChangedAction(
      */
     val revision: Long
 )
+
+@Serializable
+private data class CanvasIconChangedActionWire(
+    val type: ActionType,
+    val icon: Icon?,
+    val revision: Long
+)
+
+internal object CanvasIconChangedActionSerializer : KSerializer<CanvasIconChangedAction> {
+    override val descriptor: SerialDescriptor = CanvasIconChangedActionWire.serializer().descriptor
+
+    override fun deserialize(decoder: Decoder): CanvasIconChangedAction {
+        val input = decoder as? JsonDecoder
+            ?: error("CanvasIconChangedAction can only be deserialized from JSON")
+        val element = input.decodeJsonElement()
+        val obj = element as? JsonObject
+            ?: throw kotlinx.serialization.SerializationException("Expected JsonObject for CanvasIconChangedAction")
+        if (!obj.containsKey("icon")) throw kotlinx.serialization.SerializationException("CanvasIconChangedAction: missing required field \"icon\"")
+        val wire = input.json.decodeFromJsonElement(CanvasIconChangedActionWire.serializer(), element)
+        return CanvasIconChangedAction(
+            type = wire.type,
+            icon = wire.icon,
+            revision = wire.revision,
+        )
+    }
+
+    override fun serialize(encoder: Encoder, value: CanvasIconChangedAction) {
+        val output = encoder as? JsonEncoder
+            ?: error("CanvasIconChangedAction can only be serialized to JSON")
+        val wire = CanvasIconChangedActionWire(
+            type = value.type,
+            icon = value.icon,
+            revision = value.revision,
+        )
+        var element: JsonElement = output.json.encodeToJsonElement(CanvasIconChangedActionWire.serializer(), wire)
+        if (value.icon == null) element = JsonObject(element.jsonObject + ("icon" to kotlinx.serialization.json.JsonNull))
+        output.encodeJsonElement(element)
+    }
+}
 
 // ─── Partial Summary Types ──────────────────────────────────────────────────
 
@@ -1893,10 +1932,7 @@ internal object StateActionSerializer : KSerializer<StateAction> {
             "canvas/trustChanged" -> StateActionCanvasTrustChanged(input.json.decodeFromJsonElement(CanvasTrustChangedAction.serializer(), element))
             "canvas/incarnationChanged" -> StateActionCanvasIncarnationChanged(input.json.decodeFromJsonElement(CanvasIncarnationChangedAction.serializer(), element))
             "canvas/titleChanged" -> StateActionCanvasTitleChanged(input.json.decodeFromJsonElement(CanvasTitleChangedAction.serializer(), element))
-            "canvas/iconChanged" -> {
-                if (!obj.containsKey("icon")) throw kotlinx.serialization.SerializationException("CanvasIconChangedAction: missing required field \"icon\"")
-                StateActionCanvasIconChanged(input.json.decodeFromJsonElement(CanvasIconChangedAction.serializer(), element))
-            }
+            "canvas/iconChanged" -> StateActionCanvasIconChanged(input.json.decodeFromJsonElement(CanvasIconChangedAction.serializer(), element))
             else -> StateActionUnknown(obj)
         }
     }
@@ -2007,7 +2043,7 @@ internal object StateActionSerializer : KSerializer<StateAction> {
             is StateActionCanvasTrustChanged -> output.json.encodeToJsonElement(CanvasTrustChangedAction.serializer(), value.value)
             is StateActionCanvasIncarnationChanged -> output.json.encodeToJsonElement(CanvasIncarnationChangedAction.serializer(), value.value)
             is StateActionCanvasTitleChanged -> output.json.encodeToJsonElement(CanvasTitleChangedAction.serializer(), value.value)
-            is StateActionCanvasIconChanged -> output.json.encodeToJsonElement(CanvasIconChangedAction.serializer(), value.value).let { encoded -> if (value.value.icon == null) JsonObject(encoded.jsonObject + ("icon" to kotlinx.serialization.json.JsonNull)) else encoded }
+            is StateActionCanvasIconChanged -> output.json.encodeToJsonElement(CanvasIconChangedAction.serializer(), value.value)
             is StateActionUnknown -> value.raw
         }
         output.encodeJsonElement(element)

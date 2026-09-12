@@ -3,16 +3,19 @@ package com.microsoft.agenthostprotocol
 import com.microsoft.agenthostprotocol.generated.ActionEnvelope
 import com.microsoft.agenthostprotocol.generated.ActionOrigin
 import com.microsoft.agenthostprotocol.generated.ActionType
+import com.microsoft.agenthostprotocol.generated.CanvasIconChangedAction
 import com.microsoft.agenthostprotocol.generated.ChangesetStatus
 import com.microsoft.agenthostprotocol.generated.PartialSessionSummary
 import com.microsoft.agenthostprotocol.generated.RootAgentsChangedAction
 import com.microsoft.agenthostprotocol.generated.SessionStatus
 import com.microsoft.agenthostprotocol.generated.StateAction
 import com.microsoft.agenthostprotocol.generated.StateActionChangesetStatusChanged
+import com.microsoft.agenthostprotocol.generated.StateActionCanvasIconChanged
 import com.microsoft.agenthostprotocol.generated.StateActionRootAgentsChanged
 import com.microsoft.agenthostprotocol.generated.StateActionSessionTitleChanged
 import com.microsoft.agenthostprotocol.generated.StateActionUnknown
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.SerializationException
 import org.junit.jupiter.api.Test
@@ -66,7 +69,35 @@ class StateActionTest {
     }
 
     @Test
-    fun `canvas iconChanged rejects a missing icon`() {
+    fun `canvas iconChanged direct payload preserves required null and rejects omission`() {
+        val action = CanvasIconChangedAction(
+            type = ActionType.CANVAS_ICON_CHANGED,
+            icon = null,
+            revision = 3,
+        )
+        val encoded = json.encodeToString(CanvasIconChangedAction.serializer(), action)
+        assertEquals(JsonNull, json.parseToJsonElement(encoded).jsonObject["icon"])
+
+        assertFailsWith<SerializationException> {
+            json.decodeFromString(
+                CanvasIconChangedAction.serializer(),
+                """{"type":"canvas/iconChanged","revision":3}""",
+            )
+        }
+    }
+
+    @Test
+    fun `canvas iconChanged StateAction preserves required null and rejects omission`() {
+        val action: StateAction = StateActionCanvasIconChanged(
+            CanvasIconChangedAction(
+                type = ActionType.CANVAS_ICON_CHANGED,
+                icon = null,
+                revision = 3,
+            ),
+        )
+        val encoded = json.encodeToString(StateAction.serializer(), action)
+        assertEquals(JsonNull, json.parseToJsonElement(encoded).jsonObject["icon"])
+
         assertFailsWith<SerializationException> {
             json.decodeFromString(
                 StateAction.serializer(),
