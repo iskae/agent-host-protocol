@@ -16,9 +16,11 @@ use crate::actions::{ActionEnvelope, StateAction};
 #[allow(unused_imports)]
 use crate::state::{
     AgentSelection, AutomationDefinition, AutomationSchedule, AutomationSessionTemplate,
-    AutomationTrigger, AutomationTriggerDefinition, ContentRef, Message, MessageAttachment,
-    ModelSelection, SessionActiveClient, SessionConfigSchema, SessionSummary, SideChatSelection,
-    Snapshot, SnapshotState, TelemetryCapabilities, TerminalClaim, TextRange, Turn,
+    AutomationTrigger, AutomationTriggerDefinition, CanvasAvailabilityStatus, CanvasEntry,
+    CanvasIdentityKey, CanvasSourcePresentation, CanvasTypeDeclaration, ContentRef, Icon, Message,
+    MessageAttachment, ModelSelection, SessionActiveClient, SessionConfigSchema, SessionSummary,
+    SideChatSelection, Snapshot, SnapshotState, TelemetryCapabilities, TerminalClaim, TextRange,
+    Turn,
 };
 
 // ─── Enums ────────────────────────────────────────────────────────────
@@ -2052,7 +2054,7 @@ pub struct CloseCanvasParams {
 // ─── ChatSource Union ─────────────────────────────────────────────────
 
 /// How a new chat uses a source chat.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind")]
 pub enum ChatSource {
     #[serde(rename = "fork")]
@@ -2063,6 +2065,25 @@ pub enum ChatSource {
     /// Reducers treat this as a no-op.
     #[serde(untagged)]
     Unknown(serde_json::Value),
+}
+
+impl<'de> Deserialize<'de> for ChatSource {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let discriminator = raw.get("kind").and_then(serde_json::Value::as_str);
+        match discriminator {
+            Some("fork") => serde_json::from_value::<ForkChatSource>(raw)
+                .map(Self::Fork)
+                .map_err(serde::de::Error::custom),
+            Some("sideChat") => serde_json::from_value::<SideChatSource>(raw)
+                .map(Self::SideChat)
+                .map_err(serde::de::Error::custom),
+            _ => Ok(Self::Unknown(raw)),
+        }
+    }
 }
 
 // ─── ReconnectResult Union ────────────────────────────────────────────

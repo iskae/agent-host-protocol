@@ -131,6 +131,7 @@ value class ActionType(val rawValue: String) {
         val CANVAS_TRUST_CHANGED: ActionType = ActionType("canvas/trustChanged")
         val CANVAS_INCARNATION_CHANGED: ActionType = ActionType("canvas/incarnationChanged")
         val CANVAS_TITLE_CHANGED: ActionType = ActionType("canvas/titleChanged")
+        val CANVAS_ICON_CHANGED: ActionType = ActionType("canvas/iconChanged")
     }
 }
 
@@ -1602,6 +1603,19 @@ data class CanvasTitleChangedAction(
     val revision: Long
 )
 
+@Serializable
+data class CanvasIconChangedAction(
+    val type: ActionType,
+    /**
+     * New {@link CanvasState.icon}; `null` removes the current icon.
+     */
+    val icon: Icon?,
+    /**
+     * The {@link CanvasState.revision} this action results in; see {@link CanvasAvailabilityChangedAction.revision}.
+     */
+    val revision: Long
+)
+
 // ─── Partial Summary Types ──────────────────────────────────────────────────
 
 @Serializable
@@ -1761,6 +1775,7 @@ sealed interface StateAction
 @JvmInline value class StateActionCanvasTrustChanged(val value: CanvasTrustChangedAction) : StateAction
 @JvmInline value class StateActionCanvasIncarnationChanged(val value: CanvasIncarnationChangedAction) : StateAction
 @JvmInline value class StateActionCanvasTitleChanged(val value: CanvasTitleChangedAction) : StateAction
+@JvmInline value class StateActionCanvasIconChanged(val value: CanvasIconChangedAction) : StateAction
 @JvmInline value class StateActionUnknown(val raw: JsonObject) : StateAction
 
 internal object StateActionSerializer : KSerializer<StateAction> {
@@ -1878,6 +1893,10 @@ internal object StateActionSerializer : KSerializer<StateAction> {
             "canvas/trustChanged" -> StateActionCanvasTrustChanged(input.json.decodeFromJsonElement(CanvasTrustChangedAction.serializer(), element))
             "canvas/incarnationChanged" -> StateActionCanvasIncarnationChanged(input.json.decodeFromJsonElement(CanvasIncarnationChangedAction.serializer(), element))
             "canvas/titleChanged" -> StateActionCanvasTitleChanged(input.json.decodeFromJsonElement(CanvasTitleChangedAction.serializer(), element))
+            "canvas/iconChanged" -> {
+                if (!obj.containsKey("icon")) throw kotlinx.serialization.SerializationException("CanvasIconChangedAction: missing required field \"icon\"")
+                StateActionCanvasIconChanged(input.json.decodeFromJsonElement(CanvasIconChangedAction.serializer(), element))
+            }
             else -> StateActionUnknown(obj)
         }
     }
@@ -1988,6 +2007,7 @@ internal object StateActionSerializer : KSerializer<StateAction> {
             is StateActionCanvasTrustChanged -> output.json.encodeToJsonElement(CanvasTrustChangedAction.serializer(), value.value)
             is StateActionCanvasIncarnationChanged -> output.json.encodeToJsonElement(CanvasIncarnationChangedAction.serializer(), value.value)
             is StateActionCanvasTitleChanged -> output.json.encodeToJsonElement(CanvasTitleChangedAction.serializer(), value.value)
+            is StateActionCanvasIconChanged -> output.json.encodeToJsonElement(CanvasIconChangedAction.serializer(), value.value).let { encoded -> if (value.value.icon == null) JsonObject(encoded.jsonObject + ("icon" to kotlinx.serialization.json.JsonNull)) else encoded }
             is StateActionUnknown -> value.raw
         }
         output.encodeJsonElement(element)

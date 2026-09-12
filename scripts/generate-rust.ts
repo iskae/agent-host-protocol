@@ -222,6 +222,7 @@ interface RustProp {
   wireName: string;
   rustType: string;
   optional: boolean;
+  requiredNullable: boolean;
   renamed: boolean;
   doc: string;
   isLiteralDiscriminant: boolean;
@@ -320,6 +321,7 @@ function extractProps(iface: InterfaceDeclaration, project: Project): RustProp[]
 
     const { rustName, wireName, renamed } = rustFieldName(tsName);
     const hasUnionUndefined = /\|\s*undefined/.test(tsType);
+    const hasUnionNull = /\|\s*null/.test(tsType);
     const hasQuestionToken = p.hasQuestionToken();
 
     let rustType = mapType(tsType, tsName, iface.getName());
@@ -337,6 +339,7 @@ function extractProps(iface: InterfaceDeclaration, project: Project): RustProp[]
       wireName,
       rustType,
       optional,
+      requiredNullable: hasUnionNull && !hasQuestionToken && !hasUnionUndefined,
       renamed,
       doc: getPropertyDoc(p),
       isLiteralDiscriminant,
@@ -602,9 +605,12 @@ function generateRustStruct(rustName: string, props: RustProp[], opts: StructOpt
     }
     const attrs: string[] = [];
     if (p.renamed) attrs.push(`rename = ${JSON.stringify(p.wireName)}`);
-    if (p.optional) {
+    if (p.optional && !p.requiredNullable) {
       attrs.push('default');
       attrs.push('skip_serializing_if = "Option::is_none"');
+    }
+    if (p.requiredNullable) {
+      attrs.push('deserialize_with = "deserialize_required_nullable"');
     }
     if (rustName === 'SessionToolClientExecutionRequest' && p.rustName === 'tool_call') {
       attrs.push('serialize_with = "serialize_running_tool_call"');
@@ -654,6 +660,18 @@ where
 }`;
 }
 
+function generateRequiredNullableSerdeHelper(): string {
+  return `fn deserialize_required_nullable<'de, D, T>(
+    deserializer: D,
+) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}`;
+}
+
 // ─── Partial Struct Generation ───────────────────────────────────────────────
 
 function generatePartialStruct(project: Project, tsInterfaceName: string): string {
@@ -664,6 +682,7 @@ function generatePartialStruct(project: Project, tsInterfaceName: string): strin
     return {
       ...p,
       optional: true,
+      requiredNullable: false,
       rustType: p.rustType.startsWith('Option<') ? p.rustType : `Option<${p.rustType}>`,
     };
   });
@@ -709,7 +728,10 @@ function generateDiscriminatedUnion(project: Project, cfg: UnionConfig): string 
   if (cfg.doc) {
     for (const d of cfg.doc.split('\n')) lines.push(`/// ${d.trimEnd()}`);
   }
-  lines.push('#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]');
+  const derives = unknown
+    ? '#[derive(Debug, Clone, PartialEq, Serialize)]'
+    : '#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]';
+  lines.push(derives);
   lines.push(`#[serde(tag = ${JSON.stringify(cfg.discriminantField)})]`);
   lines.push(`pub enum ${cfg.name} {`);
 
@@ -734,6 +756,35 @@ function generateDiscriminatedUnion(project: Project, cfg: UnionConfig): string 
   }
 
   lines.push('}');
+  if (unknown) {
+    lines.push('');
+    lines.push(`impl<'de> Deserialize<'de> for ${cfg.name} {`);
+    lines.push('    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>');
+    lines.push('    where');
+    lines.push(`        D: serde::Deserializer<'de>,`);
+    lines.push('    {');
+    lines.push('        let raw = serde_json::Value::deserialize(deserializer)?;');
+    lines.push(`        let discriminator = raw.get(${JSON.stringify(cfg.discriminantField)})`);
+    lines.push('            .and_then(serde_json::Value::as_str);');
+    lines.push('        match discriminator {');
+    for (const v of cfg.variants) {
+      if (v.isUnit) {
+        lines.push(`            Some(${JSON.stringify(v.wireValue)}) => Ok(Self::${v.variantName}),`);
+      } else {
+        lines.push(`            Some(${JSON.stringify(v.wireValue)}) => serde_json::from_value::<${v.innerType}>(raw)`);
+        if (v.boxed) {
+          lines.push(`                .map(|value| Self::${v.variantName}(Box::new(value)))`);
+        } else {
+          lines.push(`                .map(Self::${v.variantName})`);
+        }
+        lines.push('                .map_err(serde::de::Error::custom),');
+      }
+    }
+    lines.push('            _ => Ok(Self::Unknown(raw)),');
+    lines.push('        }');
+    lines.push('    }');
+    lines.push('}');
+  }
   return lines.join('\n');
 }
 
@@ -1580,6 +1631,7 @@ const ACTION_VARIANTS: {
   { type: 'canvas/trustChanged', variantName: 'CanvasTrustChanged', tsInterface: 'CanvasTrustChangedAction' },
   { type: 'canvas/incarnationChanged', variantName: 'CanvasIncarnationChanged', tsInterface: 'CanvasIncarnationChangedAction' },
   { type: 'canvas/titleChanged', variantName: 'CanvasTitleChanged', tsInterface: 'CanvasTitleChangedAction' },
+  { type: 'canvas/iconChanged', variantName: 'CanvasIconChanged', tsInterface: 'CanvasIconChangedAction' },
 ];
 
 function generateMergedToolCallConfirmedStruct(scope: 'Session' | 'Chat' = 'Session'): string {
@@ -1657,9 +1709,8 @@ impl Serialize for ChatErrorAction {
 function generateActionsFile(project: Project): string {
   const lines: string[] = [GENERATED_HEADER];
   lines.push('#[allow(unused_imports)]');
-  lines.push('use crate::state::{AgentInfo, AgentSelection, Annotation, AnnotationEntry, AnnotationOrigin, AutomationDefinition, AutomationDefinitionPatch, AutomationEntry, AutomationRunLifecycle, AutomationRunSummary, ChatInputAnswer, ChatInputRequest, ChatInputResponseKind, ChatInteractivity, ChatOrigin, ConfirmationOption, ContentRef, Customization, CustomizationEnablement, ErrorInfo, ErrorResponsePart, McpAuthRequirement, McpServerState, ModelSelection, ResponsePart, SessionActiveClient, SessionInputRequest, SideChatSelection, TerminalClaim, TerminalInfo, TextRange, ToolCallContributor, ToolCallResult, ToolCallRiskAssessment, ToolCallConfirmationReason, ToolCallCancellationReason, ToolDefinition, ToolInput, ToolResultContent, UsageInfo, Message, PendingMessageKind, Turn, ChangesetStatus, ChangesetFile, ChangesetOperation, ChangesetOperationStatus, Changeset, ChatSummary};');
+  lines.push('use crate::state::{AgentInfo, AgentSelection, Annotation, AnnotationEntry, AnnotationOrigin, AutomationDefinition, AutomationDefinitionPatch, AutomationEntry, AutomationRunLifecycle, AutomationRunSummary, CanvasAvailabilityState, CanvasEntry, CanvasTrustState, ChatInputAnswer, ChatInputRequest, ChatInputResponseKind, ChatInteractivity, ChatOrigin, ConfirmationOption, ContentRef, Customization, CustomizationEnablement, ErrorInfo, ErrorResponsePart, Icon, McpAuthRequirement, McpServerState, ModelSelection, ResponsePart, SessionActiveClient, SessionInputRequest, SideChatSelection, TerminalClaim, TerminalInfo, TextRange, ToolCallContributor, ToolCallResult, ToolCallRiskAssessment, ToolCallConfirmationReason, ToolCallCancellationReason, ToolDefinition, ToolInput, ToolResultContent, UsageInfo, Message, PendingMessageKind, Turn, ChangesetStatus, ChangesetFile, ChangesetOperation, ChangesetOperationStatus, Changeset, ChatSummary};');
   lines.push('');
-
   // ActionType enum
   lines.push('// ─── ActionType ──────────────────────────────────────────────────────\n');
   const actionTypeEnum = findEnum(project, 'ActionType');
@@ -1696,6 +1747,8 @@ pub struct ActionEnvelope {
 
   // Individual action structs (as variant inner types — omit the `type` field)
   lines.push('// ─── Action Payloads ─────────────────────────────────────────────────\n');
+  lines.push(generateRequiredNullableSerdeHelper());
+  lines.push('');
   const priorPartials = new Set(requiredPartialStructs);
   for (const v of ACTION_VARIANTS) {
     if (v.tsInterface === '_merged_' || v.tsInterface === '_merged_chat_') {
@@ -1835,7 +1888,7 @@ function generateCommandsFile(project: Project): string {
   lines.push('#[allow(unused_imports)]');
   lines.push('use crate::actions::{ActionEnvelope, StateAction};');
   lines.push('#[allow(unused_imports)]');
-  lines.push('use crate::state::{AgentSelection, AutomationDefinition, AutomationSchedule, AutomationSessionTemplate, AutomationTrigger, AutomationTriggerDefinition, ContentRef, Message, MessageAttachment, ModelSelection, SessionActiveClient, SessionConfigSchema, SessionSummary, SideChatSelection, Snapshot, SnapshotState, TelemetryCapabilities, TerminalClaim, TextRange, Turn};');
+  lines.push('use crate::state::{AgentSelection, AutomationDefinition, AutomationSchedule, AutomationSessionTemplate, AutomationTrigger, AutomationTriggerDefinition, CanvasAvailabilityStatus, CanvasEntry, CanvasIdentityKey, CanvasSourcePresentation, CanvasTypeDeclaration, ContentRef, Icon, Message, MessageAttachment, ModelSelection, SessionActiveClient, SessionConfigSchema, SessionSummary, SideChatSelection, Snapshot, SnapshotState, TelemetryCapabilities, TerminalClaim, TextRange, Turn};');
   lines.push('');
 
   lines.push('// ─── Enums ────────────────────────────────────────────────────────────\n');

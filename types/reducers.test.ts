@@ -107,7 +107,13 @@ const fixtureFiles = readdirSync(fixtureDir).filter(f => f.endsWith('.json')).so
 
 const fixtures: Fixture[] = fixtureFiles.map(f => {
   const raw = JSON.parse(readFileSync(resolve(fixtureDir, f), 'utf-8'));
-  return nullToUndefined(raw) as Fixture;
+  return {
+    ...raw,
+    initial: nullToUndefined(raw.initial),
+    actions: raw.actions.map((action: { type?: string }) =>
+      action.type === ActionType.CanvasIconChanged ? action : nullToUndefined(action)),
+    expected: nullToUndefined(raw.expected),
+  } as Fixture;
 });
 
 // ─── Fixture-Driven Reducer Tests ────────────────────────────────────────────
@@ -225,6 +231,7 @@ describe('isClientDispatchable', () => {
     assert.equal(isClientDispatchable({ type: ActionType.CanvasTrustChanged, trust: { status: 'pending' }, revision: 1 } as const), false);
     assert.equal(isClientDispatchable({ type: ActionType.CanvasIncarnationChanged, incarnation: 'gen-1', revision: 1 } as const), false);
     assert.equal(isClientDispatchable({ type: ActionType.CanvasTitleChanged, title: 'x', revision: 1 } as const), false);
+    assert.equal(isClientDispatchable({ type: ActionType.CanvasIconChanged, icon: null, revision: 1 } as const), false);
   });
 
   it('returns false for session canvas-membership actions (server-only)', () => {

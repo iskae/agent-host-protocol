@@ -8240,7 +8240,7 @@ public enum AutomationRunLifecycle: Codable, Sendable {
 }
 
 public enum CanvasSource: Codable, Sendable {
-    case extension(CanvasExtensionSource)
+    case `extension`(CanvasExtensionSource)
     case package(CanvasPackageSource)
     /// Unknown or future discriminant; the raw payload is preserved
     /// and re-encoded verbatim for forward-compatibility.
@@ -8258,7 +8258,7 @@ public enum CanvasSource: Codable, Sendable {
         }
         switch discriminant {
         case "extension":
-            self = .extension(try CanvasExtensionSource(from: decoder))
+            self = .`extension`(try CanvasExtensionSource(from: decoder))
         case "package":
             self = .package(try CanvasPackageSource(from: decoder))
         default:
@@ -8268,8 +8268,8 @@ public enum CanvasSource: Codable, Sendable {
 
     public func encode(to encoder: Encoder) throws {
         switch self {
-        case .extension(var value):
-            value.kind = .extension
+        case .`extension`(var value):
+            value.kind = .`extension`
             try value.encode(to: encoder)
         case .package(var value):
             value.kind = .package

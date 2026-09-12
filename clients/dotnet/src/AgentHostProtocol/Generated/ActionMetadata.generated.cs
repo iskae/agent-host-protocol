@@ -58,6 +58,9 @@ internal static class GeneratedActionMetadata
             case CanvasAvailabilityChangedAction value:
                 actionType = value.Type;
                 return true;
+            case CanvasIconChangedAction value:
+                actionType = value.Type;
+                return true;
             case CanvasIncarnationChangedAction value:
                 actionType = value.Type;
                 return true;
@@ -400,6 +403,7 @@ internal static class GeneratedActionMetadata
             ActionType.AutomationSet => "automation/set",
             ActionType.AutomationUpdateRequested => "automation/updateRequested",
             ActionType.CanvasAvailabilityChanged => "canvas/availabilityChanged",
+            ActionType.CanvasIconChanged => "canvas/iconChanged",
             ActionType.CanvasIncarnationChanged => "canvas/incarnationChanged",
             ActionType.CanvasTitleChanged => "canvas/titleChanged",
             ActionType.CanvasTrustChanged => "canvas/trustChanged",

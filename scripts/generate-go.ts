@@ -60,6 +60,11 @@ const HEADER_WITH_IMPORTS =
   '// json.RawMessage directly (rare but possible). Compiled out.\n' +
   'var _ = json.RawMessage(nil)\n';
 
+const ACTIONS_HEADER_WITH_IMPORTS = HEADER_WITH_IMPORTS.replace(
+  '\t"encoding/json"\n',
+  '\t"encoding/json"\n\t"errors"\n',
+);
+
 export interface GenerateGoModuleOptions {
   readonly allowMissingFormatter?: boolean;
 }
@@ -246,6 +251,7 @@ interface GoProp {
   wireName: string;
   goType: string;
   optional: boolean;
+  requiredNullable: boolean;
   doc: string;
   /** True iff this property is the union variant's literal discriminant. */
   isLiteralDiscriminant: boolean;
@@ -348,6 +354,7 @@ function extractProps(iface: InterfaceDeclaration, project: Project): GoProp[] {
 
     const { goName, wireName } = goFieldName(tsName);
     const hasUnionUndefined = /\|\s*undefined/.test(tsType);
+    const hasUnionNull = /\|\s*null/.test(tsType);
     const hasQuestionToken = p.hasQuestionToken();
 
     let goType = mapType(tsType);
@@ -370,6 +377,7 @@ function extractProps(iface: InterfaceDeclaration, project: Project): GoProp[] {
       wireName,
       goType,
       optional,
+      requiredNullable: hasUnionNull && !hasQuestionToken && !hasUnionUndefined,
       doc: getPropertyDoc(p),
       isLiteralDiscriminant,
       literalValue,
@@ -483,7 +491,7 @@ function generateGoStruct(goName: string, props: GoProp[], opts: StructOpts = {}
       emitDocComment('\t', p.doc, lines);
     }
     const tagParts: string[] = [p.wireName];
-    if (p.optional) tagParts.push('omitempty');
+    if (p.optional && !p.requiredNullable) tagParts.push('omitempty');
     // Box self-referential value types in a pointer so the struct has
     // a finite size on the stack.
     let goType = p.goType;
@@ -501,6 +509,34 @@ function generateGoStruct(goName: string, props: GoProp[], opts: StructOpts = {}
     lines.push(`\t${p.goName} ${goType} ${tag}`);
   }
   lines.push('}');
+  const requiredNullableProps = emittedProps.filter((p) => p.requiredNullable);
+  if (requiredNullableProps.length > 0) {
+    const requiredProps = emittedProps.filter(
+      (p) => (!p.optional || p.requiredNullable) && !p.isLiteralDiscriminant,
+    );
+    lines.push('');
+    lines.push(`func (v *${goName}) UnmarshalJSON(data []byte) error {`);
+    lines.push('\tvar fields map[string]json.RawMessage');
+    lines.push('\tif err := json.Unmarshal(data, &fields); err != nil {');
+    lines.push('\t\treturn err');
+    lines.push('\t}');
+    for (const p of requiredProps) {
+      if (p.requiredNullable) {
+        lines.push(`\tif _, ok := fields[${JSON.stringify(p.wireName)}]; !ok {`);
+        lines.push(`\t\treturn errors.New(${JSON.stringify(`${goName}: missing required field ${JSON.stringify(p.wireName)}`)})`);
+        lines.push('\t}');
+      } else {
+        lines.push(`\tif raw, ok := fields[${JSON.stringify(p.wireName)}]; !ok {`);
+        lines.push(`\t\treturn errors.New(${JSON.stringify(`${goName}: missing required field ${JSON.stringify(p.wireName)}`)})`);
+        lines.push('\t} else if string(raw) == "null" {');
+        lines.push(`\t\treturn errors.New(${JSON.stringify(`${goName}: required field ${JSON.stringify(p.wireName)} cannot be null`)})`);
+        lines.push('\t}');
+      }
+    }
+    lines.push(`\ttype alias ${goName}`);
+    lines.push('\treturn json.Unmarshal(data, (*alias)(v))');
+    lines.push('}');
+  }
   return lines.join('\n');
 }
 
@@ -562,9 +598,9 @@ function generatePartialStruct(project: Project, tsInterfaceName: string): strin
     if (p.optional) return p;
     // Pointer-ify, except for slice/map (already nilable in Go).
     if (p.goType.startsWith('*') || p.goType.startsWith('[]') || p.goType.startsWith('map[')) {
-      return { ...p, optional: true };
+      return { ...p, optional: true, requiredNullable: false };
     }
-    return { ...p, optional: true, goType: `*${p.goType}` };
+    return { ...p, optional: true, requiredNullable: false, goType: `*${p.goType}` };
   });
   return generateGoStruct(partialGoName(tsInterfaceName), props, {
     doc: `Partial${stripIPrefix(tsInterfaceName)} is the partial equivalent of ${stripIPrefix(tsInterfaceName)} — every field is optional for delta updates.`,
@@ -1680,6 +1716,7 @@ const ACTION_VARIANTS: {
   { type: 'canvas/trustChanged', variantName: 'CanvasTrustChanged', tsInterface: 'CanvasTrustChangedAction' },
   { type: 'canvas/incarnationChanged', variantName: 'CanvasIncarnationChanged', tsInterface: 'CanvasIncarnationChangedAction' },
   { type: 'canvas/titleChanged', variantName: 'CanvasTitleChanged', tsInterface: 'CanvasTitleChangedAction' },
+  { type: 'canvas/iconChanged', variantName: 'CanvasIconChanged', tsInterface: 'CanvasIconChangedAction' },
 ];
 
 function generateMergedChatToolCallConfirmedStruct(): string {
@@ -1740,7 +1777,7 @@ function generateActionsUnion(project: Project): string {
 }
 
 function generateActionsFile(project: Project): string {
-  const lines: string[] = [HEADER_WITH_IMPORTS];
+  const lines: string[] = [ACTIONS_HEADER_WITH_IMPORTS];
 
   lines.push('// ─── ActionType ──────────────────────────────────────────────────────\n');
   lines.push(generateActionTypeEnum(project));

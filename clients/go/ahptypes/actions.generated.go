@@ -6,6 +6,7 @@ package ahptypes
 
 import (
 	"encoding/json"
+	"errors"
 )
 
 // Reference the encoding/json import to keep gofmt -d from
@@ -121,6 +122,7 @@ const (
 	ActionTypeCanvasTrustChanged                 ActionType = "canvas/trustChanged"
 	ActionTypeCanvasIncarnationChanged           ActionType = "canvas/incarnationChanged"
 	ActionTypeCanvasTitleChanged                 ActionType = "canvas/titleChanged"
+	ActionTypeCanvasIconChanged                  ActionType = "canvas/iconChanged"
 )
 
 // ─── Action Envelope ─────────────────────────────────────────────────
@@ -1750,6 +1752,35 @@ type CanvasTitleChangedAction struct {
 	Revision int64 `json:"revision"`
 }
 
+// Replaces or removes the canvas's display icon.
+//
+// This is presentation metadata only. It does not replace the live endpoint,
+// change the canvas incarnation, or replay any canvas effect.
+type CanvasIconChangedAction struct {
+	Type ActionType `json:"type"`
+	// New {@link CanvasState.icon}; `null` removes the current icon.
+	Icon *Icon `json:"icon"`
+	// The {@link CanvasState.revision} this action results in; see {@link CanvasAvailabilityChangedAction.revision}.
+	Revision int64 `json:"revision"`
+}
+
+func (v *CanvasIconChangedAction) UnmarshalJSON(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if _, ok := fields["icon"]; !ok {
+		return errors.New("CanvasIconChangedAction: missing required field \"icon\"")
+	}
+	if raw, ok := fields["revision"]; !ok {
+		return errors.New("CanvasIconChangedAction: missing required field \"revision\"")
+	} else if string(raw) == "null" {
+		return errors.New("CanvasIconChangedAction: required field \"revision\" cannot be null")
+	}
+	type alias CanvasIconChangedAction
+	return json.Unmarshal(data, (*alias)(v))
+}
+
 // ─── StateAction Union ───────────────────────────────────────────────
 
 // StateAction is the discriminated union of every state action.
@@ -1863,6 +1894,7 @@ func (*CanvasAvailabilityChangedAction) isStateAction()          {}
 func (*CanvasTrustChangedAction) isStateAction()                 {}
 func (*CanvasIncarnationChangedAction) isStateAction()           {}
 func (*CanvasTitleChangedAction) isStateAction()                 {}
+func (*CanvasIconChangedAction) isStateAction()                  {}
 
 // StateActionUnknown carries an unrecognized StateAction variant — typically a discriminator value introduced by a newer protocol version. The original JSON object is preserved verbatim so that re-encoding round-trips faithfully.
 type StateActionUnknown struct {
@@ -2486,6 +2518,12 @@ func (u *StateAction) UnmarshalJSON(data []byte) error {
 		u.Value = &value
 	case "canvas/titleChanged":
 		var value CanvasTitleChangedAction
+		if err := json.Unmarshal(data, &value); err != nil {
+			return err
+		}
+		u.Value = &value
+	case "canvas/iconChanged":
+		var value CanvasIconChangedAction
 		if err := json.Unmarshal(data, &value); err != nil {
 			return err
 		}

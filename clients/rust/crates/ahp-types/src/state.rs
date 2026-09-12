@@ -6221,7 +6221,7 @@ pub enum ChatOrigin {
 }
 
 /// A single part of a response stream (text, tool call, reasoning, content reference).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind")]
 pub enum ResponsePart {
     #[serde(rename = "markdown")]
@@ -6244,8 +6244,44 @@ pub enum ResponsePart {
     Unknown(serde_json::Value),
 }
 
+impl<'de> Deserialize<'de> for ResponsePart {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let discriminator = raw.get("kind").and_then(serde_json::Value::as_str);
+        match discriminator {
+            Some("markdown") => serde_json::from_value::<MarkdownResponsePart>(raw)
+                .map(Self::Markdown)
+                .map_err(serde::de::Error::custom),
+            Some("contentRef") => serde_json::from_value::<ResourceResponsePart>(raw)
+                .map(Self::ContentRef)
+                .map_err(serde::de::Error::custom),
+            Some("toolCall") => serde_json::from_value::<ToolCallResponsePart>(raw)
+                .map(|value| Self::ToolCall(Box::new(value)))
+                .map_err(serde::de::Error::custom),
+            Some("reasoning") => serde_json::from_value::<ReasoningResponsePart>(raw)
+                .map(Self::Reasoning)
+                .map_err(serde::de::Error::custom),
+            Some("systemNotification") => {
+                serde_json::from_value::<SystemNotificationResponsePart>(raw)
+                    .map(Self::SystemNotification)
+                    .map_err(serde::de::Error::custom)
+            }
+            Some("inputRequest") => serde_json::from_value::<InputRequestResponsePart>(raw)
+                .map(Self::InputRequest)
+                .map_err(serde::de::Error::custom),
+            Some("error") => serde_json::from_value::<ErrorResponsePart>(raw)
+                .map(Self::Error)
+                .map_err(serde::de::Error::custom),
+            _ => Ok(Self::Unknown(raw)),
+        }
+    }
+}
+
 /// Full tool call lifecycle state.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "status")]
 pub enum ToolCallState {
     #[serde(rename = "streaming")]
@@ -6268,8 +6304,46 @@ pub enum ToolCallState {
     Unknown(serde_json::Value),
 }
 
+impl<'de> Deserialize<'de> for ToolCallState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let discriminator = raw.get("status").and_then(serde_json::Value::as_str);
+        match discriminator {
+            Some("streaming") => serde_json::from_value::<ToolCallStreamingState>(raw)
+                .map(Self::Streaming)
+                .map_err(serde::de::Error::custom),
+            Some("pending-confirmation") => {
+                serde_json::from_value::<ToolCallPendingConfirmationState>(raw)
+                    .map(Self::PendingConfirmation)
+                    .map_err(serde::de::Error::custom)
+            }
+            Some("running") => serde_json::from_value::<ToolCallRunningState>(raw)
+                .map(Self::Running)
+                .map_err(serde::de::Error::custom),
+            Some("auth-required") => serde_json::from_value::<ToolCallAuthRequiredState>(raw)
+                .map(|value| Self::AuthRequired(Box::new(value)))
+                .map_err(serde::de::Error::custom),
+            Some("pending-result-confirmation") => {
+                serde_json::from_value::<ToolCallPendingResultConfirmationState>(raw)
+                    .map(Self::PendingResultConfirmation)
+                    .map_err(serde::de::Error::custom)
+            }
+            Some("completed") => serde_json::from_value::<ToolCallCompletedState>(raw)
+                .map(Self::Completed)
+                .map_err(serde::de::Error::custom),
+            Some("cancelled") => serde_json::from_value::<ToolCallCancelledState>(raw)
+                .map(Self::Cancelled)
+                .map_err(serde::de::Error::custom),
+            _ => Ok(Self::Unknown(raw)),
+        }
+    }
+}
+
 /// A tool call blocked on parameter- or result-confirmation.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "status")]
 pub enum ToolCallConfirmationState {
     #[serde(rename = "pending-confirmation")]
@@ -6280,6 +6354,29 @@ pub enum ToolCallConfirmationState {
     /// Reducers treat this as a no-op.
     #[serde(untagged)]
     Unknown(serde_json::Value),
+}
+
+impl<'de> Deserialize<'de> for ToolCallConfirmationState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let discriminator = raw.get("status").and_then(serde_json::Value::as_str);
+        match discriminator {
+            Some("pending-confirmation") => {
+                serde_json::from_value::<ToolCallPendingConfirmationState>(raw)
+                    .map(Self::PendingConfirmation)
+                    .map_err(serde::de::Error::custom)
+            }
+            Some("pending-result-confirmation") => {
+                serde_json::from_value::<ToolCallPendingResultConfirmationState>(raw)
+                    .map(Self::PendingResultConfirmation)
+                    .map_err(serde::de::Error::custom)
+            }
+            _ => Ok(Self::Unknown(raw)),
+        }
+    }
 }
 
 /// Who currently holds a terminal.
@@ -6293,7 +6390,7 @@ pub enum TerminalClaim {
 }
 
 /// A content part within terminal output.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type")]
 pub enum TerminalContentPart {
     #[serde(rename = "unclassified")]
@@ -6306,8 +6403,27 @@ pub enum TerminalContentPart {
     Unknown(serde_json::Value),
 }
 
+impl<'de> Deserialize<'de> for TerminalContentPart {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let discriminator = raw.get("type").and_then(serde_json::Value::as_str);
+        match discriminator {
+            Some("unclassified") => serde_json::from_value::<TerminalUnclassifiedPart>(raw)
+                .map(Self::Unclassified)
+                .map_err(serde::de::Error::custom),
+            Some("command") => serde_json::from_value::<TerminalCommandPart>(raw)
+                .map(Self::Command)
+                .map_err(serde::de::Error::custom),
+            _ => Ok(Self::Unknown(raw)),
+        }
+    }
+}
+
 /// One question within a chat input request.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind")]
 pub enum ChatInputQuestion {
     #[serde(rename = "text")]
@@ -6328,8 +6444,39 @@ pub enum ChatInputQuestion {
     Unknown(serde_json::Value),
 }
 
+impl<'de> Deserialize<'de> for ChatInputQuestion {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let discriminator = raw.get("kind").and_then(serde_json::Value::as_str);
+        match discriminator {
+            Some("text") => serde_json::from_value::<ChatInputTextQuestion>(raw)
+                .map(Self::Text)
+                .map_err(serde::de::Error::custom),
+            Some("number") => serde_json::from_value::<ChatInputNumberQuestion>(raw)
+                .map(Self::Number)
+                .map_err(serde::de::Error::custom),
+            Some("integer") => serde_json::from_value::<ChatInputNumberQuestion>(raw)
+                .map(Self::Integer)
+                .map_err(serde::de::Error::custom),
+            Some("boolean") => serde_json::from_value::<ChatInputBooleanQuestion>(raw)
+                .map(Self::Boolean)
+                .map_err(serde::de::Error::custom),
+            Some("single-select") => serde_json::from_value::<ChatInputSingleSelectQuestion>(raw)
+                .map(Self::SingleSelect)
+                .map_err(serde::de::Error::custom),
+            Some("multi-select") => serde_json::from_value::<ChatInputMultiSelectQuestion>(raw)
+                .map(Self::MultiSelect)
+                .map_err(serde::de::Error::custom),
+            _ => Ok(Self::Unknown(raw)),
+        }
+    }
+}
+
 /// Value captured for one answer.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind")]
 pub enum ChatInputAnswerValue {
     #[serde(rename = "text")]
@@ -6348,6 +6495,36 @@ pub enum ChatInputAnswerValue {
     Unknown(serde_json::Value),
 }
 
+impl<'de> Deserialize<'de> for ChatInputAnswerValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let discriminator = raw.get("kind").and_then(serde_json::Value::as_str);
+        match discriminator {
+            Some("text") => serde_json::from_value::<ChatInputTextAnswerValue>(raw)
+                .map(Self::Text)
+                .map_err(serde::de::Error::custom),
+            Some("number") => serde_json::from_value::<ChatInputNumberAnswerValue>(raw)
+                .map(Self::Number)
+                .map_err(serde::de::Error::custom),
+            Some("boolean") => serde_json::from_value::<ChatInputBooleanAnswerValue>(raw)
+                .map(Self::Boolean)
+                .map_err(serde::de::Error::custom),
+            Some("selected") => serde_json::from_value::<ChatInputSelectedAnswerValue>(raw)
+                .map(Self::Selected)
+                .map_err(serde::de::Error::custom),
+            Some("selected-many") => {
+                serde_json::from_value::<ChatInputSelectedManyAnswerValue>(raw)
+                    .map(Self::SelectedMany)
+                    .map_err(serde::de::Error::custom)
+            }
+            _ => Ok(Self::Unknown(raw)),
+        }
+    }
+}
+
 /// Draft, submitted, or skipped answer for one question.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "state")]
@@ -6361,7 +6538,7 @@ pub enum ChatInputAnswer {
 }
 
 /// Content block in a tool result.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type")]
 pub enum ToolResultContent {
     #[serde(rename = "text")]
@@ -6382,8 +6559,41 @@ pub enum ToolResultContent {
     Unknown(serde_json::Value),
 }
 
+impl<'de> Deserialize<'de> for ToolResultContent {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let discriminator = raw.get("type").and_then(serde_json::Value::as_str);
+        match discriminator {
+            Some("text") => serde_json::from_value::<ToolResultTextContent>(raw)
+                .map(Self::Text)
+                .map_err(serde::de::Error::custom),
+            Some("embeddedResource") => {
+                serde_json::from_value::<ToolResultEmbeddedResourceContent>(raw)
+                    .map(Self::EmbeddedResource)
+                    .map_err(serde::de::Error::custom)
+            }
+            Some("resource") => serde_json::from_value::<ToolResultResourceContent>(raw)
+                .map(Self::Resource)
+                .map_err(serde::de::Error::custom),
+            Some("fileEdit") => serde_json::from_value::<ToolResultFileEditContent>(raw)
+                .map(Self::FileEdit)
+                .map_err(serde::de::Error::custom),
+            Some("terminal") => serde_json::from_value::<ToolResultTerminalContent>(raw)
+                .map(Self::Terminal)
+                .map_err(serde::de::Error::custom),
+            Some("subagent") => serde_json::from_value::<ToolResultSubagentContent>(raw)
+                .map(Self::Subagent)
+                .map_err(serde::de::Error::custom),
+            _ => Ok(Self::Unknown(raw)),
+        }
+    }
+}
+
 /// An attachment associated with a `Message`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type")]
 pub enum MessageAttachment {
     #[serde(rename = "simple")]
@@ -6402,8 +6612,38 @@ pub enum MessageAttachment {
     Unknown(serde_json::Value),
 }
 
+impl<'de> Deserialize<'de> for MessageAttachment {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let discriminator = raw.get("type").and_then(serde_json::Value::as_str);
+        match discriminator {
+            Some("simple") => serde_json::from_value::<SimpleMessageAttachment>(raw)
+                .map(Self::Simple)
+                .map_err(serde::de::Error::custom),
+            Some("embeddedResource") => {
+                serde_json::from_value::<MessageEmbeddedResourceAttachment>(raw)
+                    .map(Self::EmbeddedResource)
+                    .map_err(serde::de::Error::custom)
+            }
+            Some("resource") => serde_json::from_value::<MessageResourceAttachment>(raw)
+                .map(Self::Resource)
+                .map_err(serde::de::Error::custom),
+            Some("annotations") => serde_json::from_value::<MessageAnnotationsAttachment>(raw)
+                .map(Self::Annotations)
+                .map_err(serde::de::Error::custom),
+            Some("chat") => serde_json::from_value::<MessageChatAttachment>(raw)
+                .map(Self::Chat)
+                .map_err(serde::de::Error::custom),
+            _ => Ok(Self::Unknown(raw)),
+        }
+    }
+}
+
 /// A top-level customization (plugin, directory, or bare MCP server).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type")]
 pub enum Customization {
     #[serde(rename = "plugin")]
@@ -6418,8 +6658,30 @@ pub enum Customization {
     Unknown(serde_json::Value),
 }
 
+impl<'de> Deserialize<'de> for Customization {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let discriminator = raw.get("type").and_then(serde_json::Value::as_str);
+        match discriminator {
+            Some("plugin") => serde_json::from_value::<PluginCustomization>(raw)
+                .map(Self::Plugin)
+                .map_err(serde::de::Error::custom),
+            Some("directory") => serde_json::from_value::<DirectoryCustomization>(raw)
+                .map(Self::Directory)
+                .map_err(serde::de::Error::custom),
+            Some("mcpServer") => serde_json::from_value::<McpServerCustomization>(raw)
+                .map(|value| Self::McpServer(Box::new(value)))
+                .map_err(serde::de::Error::custom),
+            _ => Ok(Self::Unknown(raw)),
+        }
+    }
+}
+
 /// A child customization living inside a plugin or directory.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type")]
 pub enum ChildCustomization {
     #[serde(rename = "agent")]
@@ -6440,6 +6702,37 @@ pub enum ChildCustomization {
     Unknown(serde_json::Value),
 }
 
+impl<'de> Deserialize<'de> for ChildCustomization {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let discriminator = raw.get("type").and_then(serde_json::Value::as_str);
+        match discriminator {
+            Some("agent") => serde_json::from_value::<AgentCustomization>(raw)
+                .map(Self::Agent)
+                .map_err(serde::de::Error::custom),
+            Some("skill") => serde_json::from_value::<SkillCustomization>(raw)
+                .map(Self::Skill)
+                .map_err(serde::de::Error::custom),
+            Some("prompt") => serde_json::from_value::<PromptCustomization>(raw)
+                .map(Self::Prompt)
+                .map_err(serde::de::Error::custom),
+            Some("rule") => serde_json::from_value::<RuleCustomization>(raw)
+                .map(Self::Rule)
+                .map_err(serde::de::Error::custom),
+            Some("hook") => serde_json::from_value::<HookCustomization>(raw)
+                .map(Self::Hook)
+                .map_err(serde::de::Error::custom),
+            Some("mcpServer") => serde_json::from_value::<McpServerCustomization>(raw)
+                .map(|value| Self::McpServer(Box::new(value)))
+                .map_err(serde::de::Error::custom),
+            _ => Ok(Self::Unknown(raw)),
+        }
+    }
+}
+
 /// Host-reported load state for a container customization.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
@@ -6455,7 +6748,7 @@ pub enum CustomizationLoadState {
 }
 
 /// Discriminated lifecycle status of an MCP server customization.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind")]
 pub enum McpServerState {
     #[serde(rename = "starting")]
@@ -6474,8 +6767,36 @@ pub enum McpServerState {
     Unknown(serde_json::Value),
 }
 
+impl<'de> Deserialize<'de> for McpServerState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let discriminator = raw.get("kind").and_then(serde_json::Value::as_str);
+        match discriminator {
+            Some("starting") => serde_json::from_value::<McpServerStartingState>(raw)
+                .map(Self::Starting)
+                .map_err(serde::de::Error::custom),
+            Some("ready") => serde_json::from_value::<McpServerReadyState>(raw)
+                .map(Self::Ready)
+                .map_err(serde::de::Error::custom),
+            Some("authRequired") => serde_json::from_value::<McpServerAuthRequiredState>(raw)
+                .map(|value| Self::AuthRequired(Box::new(value)))
+                .map_err(serde::de::Error::custom),
+            Some("error") => serde_json::from_value::<McpServerErrorState>(raw)
+                .map(Self::Error)
+                .map_err(serde::de::Error::custom),
+            Some("stopped") => serde_json::from_value::<McpServerStoppedState>(raw)
+                .map(Self::Stopped)
+                .map_err(serde::de::Error::custom),
+            _ => Ok(Self::Unknown(raw)),
+        }
+    }
+}
+
 /// Reference to the contributor of the tool being called.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind")]
 pub enum ToolCallContributor {
     #[serde(rename = "client")]
@@ -6488,8 +6809,27 @@ pub enum ToolCallContributor {
     Unknown(serde_json::Value),
 }
 
+impl<'de> Deserialize<'de> for ToolCallContributor {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let discriminator = raw.get("kind").and_then(serde_json::Value::as_str);
+        match discriminator {
+            Some("client") => serde_json::from_value::<ToolCallClientContributor>(raw)
+                .map(Self::Client)
+                .map_err(serde::de::Error::custom),
+            Some("mcp") => serde_json::from_value::<ToolCallMcpContributor>(raw)
+                .map(Self::Mcp)
+                .map_err(serde::de::Error::custom),
+            _ => Ok(Self::Unknown(raw)),
+        }
+    }
+}
+
 /// Asynchronous model-judge confirmation rationale.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "status")]
 pub enum ToolCallRiskAssessment {
     #[serde(rename = "loading")]
@@ -6500,6 +6840,25 @@ pub enum ToolCallRiskAssessment {
     /// Reducers treat this as a no-op.
     #[serde(untagged)]
     Unknown(serde_json::Value),
+}
+
+impl<'de> Deserialize<'de> for ToolCallRiskAssessment {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let discriminator = raw.get("status").and_then(serde_json::Value::as_str);
+        match discriminator {
+            Some("loading") => serde_json::from_value::<ToolCallRiskAssessmentLoadingState>(raw)
+                .map(Self::Loading)
+                .map_err(serde::de::Error::custom),
+            Some("complete") => serde_json::from_value::<ToolCallRiskAssessmentCompleteState>(raw)
+                .map(Self::Complete)
+                .map_err(serde::de::Error::custom),
+            _ => Ok(Self::Unknown(raw)),
+        }
+    }
 }
 
 /// Current lifecycle of a terminal process.
@@ -6513,7 +6872,7 @@ pub enum TerminalLifecycleState {
 }
 
 /// One outstanding piece of input a session is blocked on, aggregated across all chats.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind")]
 pub enum SessionInputRequest {
     #[serde(rename = "chatInput")]
@@ -6530,8 +6889,39 @@ pub enum SessionInputRequest {
     Unknown(serde_json::Value),
 }
 
+impl<'de> Deserialize<'de> for SessionInputRequest {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let discriminator = raw.get("kind").and_then(serde_json::Value::as_str);
+        match discriminator {
+            Some("chatInput") => serde_json::from_value::<SessionChatInputRequest>(raw)
+                .map(Self::ChatInput)
+                .map_err(serde::de::Error::custom),
+            Some("toolConfirmation") => {
+                serde_json::from_value::<SessionToolConfirmationRequest>(raw)
+                    .map(Self::ToolConfirmation)
+                    .map_err(serde::de::Error::custom)
+            }
+            Some("toolClientExecution") => {
+                serde_json::from_value::<SessionToolClientExecutionRequest>(raw)
+                    .map(Self::ToolClientExecution)
+                    .map_err(serde::de::Error::custom)
+            }
+            Some("toolAuthentication") => {
+                serde_json::from_value::<SessionToolAuthenticationRequest>(raw)
+                    .map(|value| Self::ToolAuthentication(Box::new(value)))
+                    .map_err(serde::de::Error::custom)
+            }
+            _ => Ok(Self::Unknown(raw)),
+        }
+    }
+}
+
 /// Durable origin of a session.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind")]
 pub enum SessionOrigin {
     #[serde(rename = "automation")]
@@ -6540,6 +6930,22 @@ pub enum SessionOrigin {
     /// Reducers treat this as a no-op.
     #[serde(untagged)]
     Unknown(serde_json::Value),
+}
+
+impl<'de> Deserialize<'de> for SessionOrigin {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let discriminator = raw.get("kind").and_then(serde_json::Value::as_str);
+        match discriminator {
+            Some("automation") => serde_json::from_value::<AutomationSessionOrigin>(raw)
+                .map(Self::Automation)
+                .map_err(serde::de::Error::custom),
+            _ => Ok(Self::Unknown(raw)),
+        }
+    }
 }
 
 /// Automatic trigger for an automation.
@@ -6579,7 +6985,7 @@ pub enum AutomationRunLifecycle {
 }
 
 /// Identifies the explicitly installed extension or package that declares a canvas type.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind")]
 pub enum CanvasSource {
     #[serde(rename = "extension")]
@@ -6592,8 +6998,27 @@ pub enum CanvasSource {
     Unknown(serde_json::Value),
 }
 
+impl<'de> Deserialize<'de> for CanvasSource {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let discriminator = raw.get("kind").and_then(serde_json::Value::as_str);
+        match discriminator {
+            Some("extension") => serde_json::from_value::<CanvasExtensionSource>(raw)
+                .map(Self::Extension)
+                .map_err(serde::de::Error::custom),
+            Some("package") => serde_json::from_value::<CanvasPackageSource>(raw)
+                .map(Self::Package)
+                .map_err(serde::de::Error::custom),
+            _ => Ok(Self::Unknown(raw)),
+        }
+    }
+}
+
 /// Current trust decision governing whether a canvas's declared actions may execute.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "status")]
 pub enum CanvasTrustState {
     #[serde(rename = "trusted")]
@@ -6608,8 +7033,30 @@ pub enum CanvasTrustState {
     Unknown(serde_json::Value),
 }
 
+impl<'de> Deserialize<'de> for CanvasTrustState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let discriminator = raw.get("status").and_then(serde_json::Value::as_str);
+        match discriminator {
+            Some("trusted") => serde_json::from_value::<CanvasTrustedState>(raw)
+                .map(Self::Trusted)
+                .map_err(serde::de::Error::custom),
+            Some("pending") => serde_json::from_value::<CanvasPendingTrustState>(raw)
+                .map(Self::Pending)
+                .map_err(serde::de::Error::custom),
+            Some("blocked") => serde_json::from_value::<CanvasBlockedTrustState>(raw)
+                .map(Self::Blocked)
+                .map_err(serde::de::Error::custom),
+            _ => Ok(Self::Unknown(raw)),
+        }
+    }
+}
+
 /// Current live resolution state of a canvas.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "status")]
 pub enum CanvasAvailabilityState {
     #[serde(rename = "unsupported")]
@@ -6628,6 +7075,39 @@ pub enum CanvasAvailabilityState {
     /// Reducers treat this as a no-op.
     #[serde(untagged)]
     Unknown(serde_json::Value),
+}
+
+impl<'de> Deserialize<'de> for CanvasAvailabilityState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let discriminator = raw.get("status").and_then(serde_json::Value::as_str);
+        match discriminator {
+            Some("unsupported") => {
+                serde_json::from_value::<CanvasUnsupportedAvailabilityState>(raw)
+                    .map(Self::Unsupported)
+                    .map_err(serde::de::Error::custom)
+            }
+            Some("notLoaded") => serde_json::from_value::<CanvasNotLoadedAvailabilityState>(raw)
+                .map(Self::NotLoaded)
+                .map_err(serde::de::Error::custom),
+            Some("loading") => serde_json::from_value::<CanvasLoadingAvailabilityState>(raw)
+                .map(Self::Loading)
+                .map_err(serde::de::Error::custom),
+            Some("empty") => serde_json::from_value::<CanvasEmptyAvailabilityState>(raw)
+                .map(Self::Empty)
+                .map_err(serde::de::Error::custom),
+            Some("ready") => serde_json::from_value::<CanvasReadyAvailabilityState>(raw)
+                .map(Self::Ready)
+                .map_err(serde::de::Error::custom),
+            Some("failed") => serde_json::from_value::<CanvasFailedAvailabilityState>(raw)
+                .map(Self::Failed)
+                .map_err(serde::de::Error::custom),
+            _ => Ok(Self::Unknown(raw)),
+        }
+    }
 }
 
 /// The state payload of a snapshot.

@@ -82,6 +82,7 @@ namespace Microsoft.AgentHostProtocol;
 [JsonSerializable(typeof(CanvasEntry))]
 [JsonSerializable(typeof(CanvasExtensionSource))]
 [JsonSerializable(typeof(CanvasFailedAvailabilityState))]
+[JsonSerializable(typeof(CanvasIconChangedAction))]
 [JsonSerializable(typeof(CanvasIdentity))]
 [JsonSerializable(typeof(CanvasIdentityKey))]
 [JsonSerializable(typeof(CanvasIncarnationChangedAction))]

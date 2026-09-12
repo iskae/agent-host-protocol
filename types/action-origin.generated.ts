@@ -105,6 +105,7 @@ import type {
   CanvasTrustChangedAction,
   CanvasIncarnationChangedAction,
   CanvasTitleChangedAction,
+  CanvasIconChangedAction,
 } from './actions.js';
 
 import { ActionType } from './actions.js';
@@ -423,6 +424,7 @@ export type CanvasAction =
   | CanvasTrustChangedAction
   | CanvasIncarnationChangedAction
   | CanvasTitleChangedAction
+  | CanvasIconChangedAction
 ;
 
 /** Union of canvas actions that clients may dispatch. */
@@ -436,6 +438,7 @@ export type ServerCanvasAction =
   | CanvasTrustChangedAction
   | CanvasIncarnationChangedAction
   | CanvasTitleChangedAction
+  | CanvasIconChangedAction
 ;
 
 // ─── Client-Dispatchable Map ─────────────────────────────────────────────────
@@ -547,4 +550,5 @@ export const IS_CLIENT_DISPATCHABLE: { readonly [K in StateAction['type']]: bool
   [ActionType.CanvasTrustChanged]: false,
   [ActionType.CanvasIncarnationChanged]: false,
   [ActionType.CanvasTitleChanged]: false,
+  [ActionType.CanvasIconChanged]: false,
 };

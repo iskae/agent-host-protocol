@@ -135,6 +135,7 @@ import type {
   CanvasTrustChangedAction,
   CanvasIncarnationChangedAction,
   CanvasTitleChangedAction,
+  CanvasIconChangedAction,
 } from '../channels-canvas/actions.js';
 
 // ─── Action Type Enum ────────────────────────────────────────────────────────
@@ -248,6 +249,7 @@ export const enum ActionType {
   CanvasTrustChanged = 'canvas/trustChanged',
   CanvasIncarnationChanged = 'canvas/incarnationChanged',
   CanvasTitleChanged = 'canvas/titleChanged',
+  CanvasIconChanged = 'canvas/iconChanged',
 }
 
 // ─── Action Envelope ─────────────────────────────────────────────────────────
@@ -385,4 +387,5 @@ export type StateAction =
   | CanvasAvailabilityChangedAction
   | CanvasTrustChangedAction
   | CanvasIncarnationChangedAction
-  | CanvasTitleChangedAction;
+  | CanvasTitleChangedAction
+  | CanvasIconChangedAction;

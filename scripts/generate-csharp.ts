@@ -234,6 +234,7 @@ interface CsProp {
   wireName: string;
   csType: string;
   optional: boolean;
+  requiredNullable: boolean;
   doc: string;
   isLiteralDiscriminant: boolean;
   literalValue?: string;
@@ -363,6 +364,7 @@ function extractProps(iface: InterfaceDeclaration, project: Project): CsProp[] {
       wireName: tsName,
       csType,
       optional,
+      requiredNullable: hasUnionNull && !hasQuestionToken && !hasUnionUndefined,
       doc: getPropertyDoc(p),
       isLiteralDiscriminant,
       literalValue,
@@ -527,6 +529,7 @@ function generateCsClass(csName: string, props: CsProp[], opts: StructOpts = {})
   // payload is a write-once record with init-only props.
   const kind = opts.mutable ? 'class' : 'record';
   const accessor = opts.mutable ? 'get; set;' : 'get; init;';
+  const enforceAllRequiredFields = emittedProps.some((p) => p.requiredNullable);
 
   lines.push(`public sealed ${kind} ${csName}`);
   lines.push('{');
@@ -539,12 +542,16 @@ function generateCsClass(csName: string, props: CsProp[], opts: StructOpts = {})
       lines.push(`    [JsonPropertyName(${JSON.stringify(p.wireName)})]`);
     }
     let csType = p.csType;
-    if (p.optional) {
+    if (p.optional && !p.requiredNullable) {
       lines.push('    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]');
+    }
+    if (p.optional) {
       csType = `${csType}?`;
     }
     const def = csPropDefault(p.csType, p.optional);
-    const req = csRequiredModifier(p.csType, p.optional);
+    const req = enforceAllRequiredFields && !p.optional && !p.isLiteralDiscriminant
+      ? 'required '
+      : csRequiredModifier(p.csType, p.optional && !p.requiredNullable);
     lines.push(`    public ${req}${csType} ${p.csName} { ${accessor} }${def}`);
   });
   lines.push('}');
@@ -568,7 +575,11 @@ function generateClassFromInterface(
 function generatePartialClass(project: Project, tsInterfaceName: string): string {
   const iface = findInterface(project, tsInterfaceName);
   if (!iface) throw new Error(`Interface ${tsInterfaceName} not found`);
-  const props = extractProps(iface, project).map((p) => ({ ...p, optional: true }));
+  const props = extractProps(iface, project).map((p) => ({
+    ...p,
+    optional: true,
+    requiredNullable: false,
+  }));
   return generateCsClass(partialCsName(tsInterfaceName), props, {
     doc: `Partial equivalent of ${stripIPrefix(tsInterfaceName)} — every field is optional for delta updates.`,
   });
@@ -1590,6 +1601,7 @@ const ACTION_VARIANTS: { type: string; variantName: string; tsInterface: string 
   { type: 'canvas/trustChanged', variantName: 'CanvasTrustChanged', tsInterface: 'CanvasTrustChangedAction' },
   { type: 'canvas/incarnationChanged', variantName: 'CanvasIncarnationChanged', tsInterface: 'CanvasIncarnationChangedAction' },
   { type: 'canvas/titleChanged', variantName: 'CanvasTitleChanged', tsInterface: 'CanvasTitleChangedAction' },
+  { type: 'canvas/iconChanged', variantName: 'CanvasIconChanged', tsInterface: 'CanvasIconChangedAction' },
 ];
 
 function generateMergedToolCallConfirmedClass(): string {

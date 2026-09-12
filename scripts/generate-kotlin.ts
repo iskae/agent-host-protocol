@@ -227,6 +227,7 @@ interface KotlinProp {
   wireName: string;   // JSON key
   type: string;       // Kotlin type
   optional: boolean;  // emit `= null` default
+  requiredNullable: boolean;
   doc: string;
 }
 
@@ -311,7 +312,9 @@ function extractProps(iface: InterfaceDeclaration, project: Project): KotlinProp
         kt = 'Double';
       }
       const hasUnionUndefined = /\|\s*undefined/.test(tsType);
-      const isOptional = p.hasQuestionToken() || hasUnionUndefined || kt.endsWith('?');
+      const hasUnionNull = /\|\s*null/.test(tsType);
+      const hasQuestionToken = p.hasQuestionToken();
+      const isOptional = hasQuestionToken || hasUnionUndefined || kt.endsWith('?');
       const finalType = isOptional && !kt.endsWith('?') ? kt + '?' : kt;
       const kName = tsName.startsWith('_')
         ? kotlinPropName(tsName)
@@ -324,6 +327,7 @@ function extractProps(iface: InterfaceDeclaration, project: Project): KotlinProp
         wireName: tsName,
         type: finalType,
         optional: isOptional,
+        requiredNullable: hasUnionNull && !hasQuestionToken && !hasUnionUndefined,
         doc: getPropertyDoc(p),
       };
     });
@@ -490,7 +494,7 @@ function generateKotlinDataClass(
     if (p.name !== p.wireName) {
       lines.push(`    @SerialName(${JSON.stringify(p.wireName)})`);
     }
-    const defaultVal = p.optional ? ' = null' : '';
+    const defaultVal = p.optional && !p.requiredNullable ? ' = null' : '';
     const trailing = idx === props.length - 1 ? '' : ',';
     lines.push(`    val ${p.name}: ${p.type}${defaultVal}${trailing}`);
   });
@@ -736,6 +740,7 @@ function generatePartialDataClassFromInterface(
   const props = extractProps(iface, project).map(p => ({
     ...p,
     optional: true,
+    requiredNullable: false,
     type: p.type.endsWith('?') ? p.type : `${p.type}?`,
   }));
   return generateKotlinDataClass(partialKotlinName(tsInterfaceName), props);
@@ -1617,6 +1622,7 @@ const ACTION_VARIANTS: { type: string; caseName: string; tsInterface: string }[]
   { type: 'canvas/trustChanged', caseName: 'CanvasTrustChanged', tsInterface: 'CanvasTrustChangedAction' },
   { type: 'canvas/incarnationChanged', caseName: 'CanvasIncarnationChanged', tsInterface: 'CanvasIncarnationChangedAction' },
   { type: 'canvas/titleChanged', caseName: 'CanvasTitleChanged', tsInterface: 'CanvasTitleChangedAction' },
+  { type: 'canvas/iconChanged', caseName: 'CanvasIconChanged', tsInterface: 'CanvasIconChangedAction' },
 ];
 
 /** Merged data class for the approved/denied tool call confirmed action. */
@@ -1747,7 +1753,22 @@ function generateActionsFile(project: Project): string {
   lines.push('        return when (type) {');
   for (const v of ACTION_VARIANTS) {
     const dataClass = v.tsInterface === '_merged_' ? 'SessionToolCallConfirmedAction' : v.tsInterface === '_merged_chat_' ? 'ChatToolCallConfirmedAction' : v.tsInterface;
-    lines.push(`            ${JSON.stringify(v.type)} -> StateAction${v.caseName}(input.json.decodeFromJsonElement(${dataClass}.serializer(), element))`);
+    const iface = v.tsInterface === '_merged_' || v.tsInterface === '_merged_chat_'
+      ? undefined
+      : findInterface(project, v.tsInterface);
+    const requiredNullable = iface
+      ? extractProps(iface, project).filter(prop => prop.requiredNullable)
+      : [];
+    if (requiredNullable.length === 0) {
+      lines.push(`            ${JSON.stringify(v.type)} -> StateAction${v.caseName}(input.json.decodeFromJsonElement(${dataClass}.serializer(), element))`);
+      continue;
+    }
+    lines.push(`            ${JSON.stringify(v.type)} -> {`);
+    for (const prop of requiredNullable) {
+      lines.push(`                if (!obj.containsKey(${JSON.stringify(prop.wireName)})) throw kotlinx.serialization.SerializationException(${JSON.stringify(`${v.tsInterface}: missing required field "${prop.wireName}"`)})`);
+    }
+    lines.push(`                StateAction${v.caseName}(input.json.decodeFromJsonElement(${dataClass}.serializer(), element))`);
+    lines.push('            }');
   }
   lines.push('            else -> StateActionUnknown(obj)');
   lines.push('        }');
@@ -1759,7 +1780,17 @@ function generateActionsFile(project: Project): string {
   lines.push('        val element: JsonElement = when (value) {');
   for (const v of ACTION_VARIANTS) {
     const dataClass = v.tsInterface === '_merged_' ? 'SessionToolCallConfirmedAction' : v.tsInterface === '_merged_chat_' ? 'ChatToolCallConfirmedAction' : v.tsInterface;
-    lines.push(`            is StateAction${v.caseName} -> output.json.encodeToJsonElement(${dataClass}.serializer(), value.value)`);
+    let expression = `output.json.encodeToJsonElement(${dataClass}.serializer(), value.value)`;
+    if (v.tsInterface !== '_merged_' && v.tsInterface !== '_merged_chat_') {
+      const iface = findInterface(project, v.tsInterface);
+      const requiredNullable = iface
+        ? extractProps(iface, project).filter(prop => prop.requiredNullable)
+        : [];
+      for (const prop of requiredNullable) {
+        expression = `${expression}.let { encoded -> if (value.value.${prop.name} == null) JsonObject(encoded.jsonObject + (${JSON.stringify(prop.wireName)} to kotlinx.serialization.json.JsonNull)) else encoded }`;
+      }
+    }
+    lines.push(`            is StateAction${v.caseName} -> ${expression}`);
   }
   lines.push('            is StateActionUnknown -> value.raw');
   lines.push('        }');

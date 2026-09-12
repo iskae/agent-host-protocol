@@ -14,10 +14,12 @@ import com.microsoft.agenthostprotocol.generated.StateActionSessionTitleChanged
 import com.microsoft.agenthostprotocol.generated.StateActionUnknown
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.SerializationException
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertFailsWith
 
 /**
  * Tests for [StateAction] and the [ActionEnvelope] wrapper. Critical for
@@ -61,6 +63,16 @@ class StateActionTest {
         val reEncoded = json.encodeToString(StateAction.serializer(), decoded)
         val reTree = json.parseToJsonElement(reEncoded).jsonObject
         assertEquals(json.parseToJsonElement(futureWire).jsonObject, reTree)
+    }
+
+    @Test
+    fun `canvas iconChanged rejects a missing icon`() {
+        assertFailsWith<SerializationException> {
+            json.decodeFromString(
+                StateAction.serializer(),
+                """{"type":"canvas/iconChanged","revision":3}""",
+            )
+        }
     }
 
     @Test

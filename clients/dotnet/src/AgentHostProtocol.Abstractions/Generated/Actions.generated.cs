@@ -217,6 +217,8 @@ public enum ActionType
     CanvasIncarnationChanged,
     [WireValue("canvas/titleChanged")]
     CanvasTitleChanged,
+    [WireValue("canvas/iconChanged")]
+    CanvasIconChanged,
 }
 
 // ─── Action Envelope ─────────────────────────────────────────────────
@@ -2608,6 +2610,21 @@ public sealed record CanvasTitleChangedAction
     public long Revision { get; init; }
 }
 
+/// <summary>Replaces or removes the canvas's display icon.
+///
+/// This is presentation metadata only. It does not replace the live endpoint,
+/// change the canvas incarnation, or replay any canvas effect.</summary>
+public sealed record CanvasIconChangedAction
+{
+    public ActionType Type { get; init; }
+
+    /// <summary>New {@link CanvasState.icon}; `null` removes the current icon.</summary>
+    public required Icon? Icon { get; init; }
+
+    /// <summary>The {@link CanvasState.revision} this action results in; see {@link CanvasAvailabilityChangedAction.revision}.</summary>
+    public required long Revision { get; init; }
+}
+
 // ─── Partial Summaries (action-discovered) ───────────────────────────
 
 /// <summary>Partial equivalent of ChatSummary — every field is optional for delta updates.</summary>
@@ -2793,6 +2810,7 @@ internal sealed class StateActionConverter : UnionConverter<StateAction>
         ["canvas/trustChanged"] = typeof(CanvasTrustChangedAction),
         ["canvas/incarnationChanged"] = typeof(CanvasIncarnationChangedAction),
         ["canvas/titleChanged"] = typeof(CanvasTitleChangedAction),
+        ["canvas/iconChanged"] = typeof(CanvasIconChangedAction),
             },
             allowUnknown: true)
     {

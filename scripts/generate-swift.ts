@@ -188,6 +188,7 @@ interface SwiftProp {
   wireName: string;  // JSON key
   type: string;      // Swift type
   optional: boolean;
+  requiredNullable: boolean;
   doc: string;
 }
 
@@ -273,7 +274,9 @@ function extractProps(iface: InterfaceDeclaration, project: Project): SwiftProp[
         swiftT = 'Double';
       }
       const hasUnionUndefined = /\|\s*undefined/.test(tsType);
-      const isOptional = p.hasQuestionToken() || hasUnionUndefined || swiftT.endsWith('?');
+      const hasUnionNull = /\|\s*null/.test(tsType);
+      const hasQuestionToken = p.hasQuestionToken();
+      const isOptional = hasQuestionToken || hasUnionUndefined || swiftT.endsWith('?');
       const finalType = isOptional && !swiftT.endsWith('?') ? swiftT + '?' : swiftT;
       const sName = tsName.startsWith('_')
         ? swiftPropName(tsName)
@@ -286,6 +289,7 @@ function extractProps(iface: InterfaceDeclaration, project: Project): SwiftProp[
         wireName: tsName,
         type: finalType,
         optional: isOptional,
+        requiredNullable: hasUnionNull && !hasQuestionToken && !hasUnionUndefined,
         doc: getPropertyDoc(p),
       };
     });
@@ -438,7 +442,8 @@ function generateSwiftStruct(
   }
 
   // CodingKeys if needed
-  const needsKeys = props.some(p => p.name !== p.wireName);
+  const hasRequiredNullable = props.some(p => p.requiredNullable);
+  const needsKeys = hasRequiredNullable || props.some(p => p.name !== p.wireName);
   if (needsKeys) {
     lines.push('');
     lines.push('    enum CodingKeys: String, CodingKey {');
@@ -455,7 +460,7 @@ function generateSwiftStruct(
   // Public init
   lines.push('');
   const initParams = props.map(p => {
-    const defaultVal = p.optional ? ' = nil' : '';
+    const defaultVal = p.optional && !p.requiredNullable ? ' = nil' : '';
     return `        ${p.name}: ${p.type}${defaultVal}`;
   });
   lines.push('    public init(');
@@ -465,6 +470,30 @@ function generateSwiftStruct(
     lines.push(`        self.${p.name} = ${p.name}`);
   }
   lines.push('    }');
+
+  if (hasRequiredNullable) {
+    lines.push('');
+    lines.push('    public init(from decoder: Decoder) throws {');
+    lines.push('        let container = try decoder.container(keyedBy: CodingKeys.self)');
+    for (const p of props) {
+      if (p.requiredNullable) {
+        lines.push(`        self.${p.name} = try container.decode(${p.type}.self, forKey: .${p.name})`);
+      } else if (p.optional) {
+        lines.push(`        self.${p.name} = try container.decodeIfPresent(${p.type.replace(/\?$/, '')}.self, forKey: .${p.name})`);
+      } else {
+        lines.push(`        self.${p.name} = try container.decode(${p.type}.self, forKey: .${p.name})`);
+      }
+    }
+    lines.push('    }');
+    lines.push('');
+    lines.push('    public func encode(to encoder: Encoder) throws {');
+    lines.push('        var container = encoder.container(keyedBy: CodingKeys.self)');
+    for (const p of props) {
+      const method = p.optional && !p.requiredNullable ? 'encodeIfPresent' : 'encode';
+      lines.push(`        try container.${method}(${p.name}, forKey: .${p.name})`);
+    }
+    lines.push('    }');
+  }
 
   lines.push('}');
   return lines.join('\n');
@@ -510,7 +539,7 @@ function generateDiscriminatedUnion(project: Project, config: UnionConfig): stri
   lines.push(`public enum ${config.name}: Codable, Sendable {`);
 
   for (const v of config.variants) {
-    lines.push(`    case ${v.caseName}(${v.structName})`);
+    lines.push(`    case ${swiftIdentifier(v.caseName)}(${v.structName})`);
   }
   if (allowUnknown) {
     lines.push('    /// Unknown or future discriminant; the raw payload is preserved');
@@ -538,7 +567,7 @@ function generateDiscriminatedUnion(project: Project, config: UnionConfig): stri
   lines.push('        switch discriminant {');
   for (const v of config.variants) {
     lines.push(`        case ${JSON.stringify(v.discriminantValue)}:`);
-    lines.push(`            self = .${v.caseName}(try ${v.structName}(from: decoder))`);
+    lines.push(`            self = .${swiftIdentifier(v.caseName)}(try ${v.structName}(from: decoder))`);
   }
   lines.push('        default:');
   if (allowUnknown) {
@@ -555,11 +584,11 @@ function generateDiscriminatedUnion(project: Project, config: UnionConfig): stri
   lines.push('        switch self {');
   for (const v of config.variants) {
     if (config.injectDiscriminantOnEncode) {
-      lines.push(`        case .${v.caseName}(var value):`);
-      lines.push(`            value.${config.discriminantField} = .${v.caseName}`);
+      lines.push(`        case .${swiftIdentifier(v.caseName)}(var value):`);
+      lines.push(`            value.${config.discriminantField} = .${swiftIdentifier(v.caseName)}`);
       lines.push('            try value.encode(to: encoder)');
     } else {
-      lines.push(`        case .${v.caseName}(let value): try value.encode(to: encoder)`);
+      lines.push(`        case .${swiftIdentifier(v.caseName)}(let value): try value.encode(to: encoder)`);
     }
   }
   if (allowUnknown) {
@@ -663,6 +692,7 @@ function generatePartialStructFromInterface(
   const props = extractProps(iface, project).map(p => ({
     ...p,
     optional: true,
+    requiredNullable: false,
     type: p.type.endsWith('?') ? p.type : `${p.type}?`,
   }));
   return generateSwiftStruct(partialSwiftName(tsInterfaceName), props);
@@ -1514,6 +1544,7 @@ const ACTION_VARIANTS: { type: string; caseName: string; tsInterface: string }[]
   { type: 'canvas/trustChanged', caseName: 'canvasTrustChanged', tsInterface: 'CanvasTrustChangedAction' },
   { type: 'canvas/incarnationChanged', caseName: 'canvasIncarnationChanged', tsInterface: 'CanvasIncarnationChangedAction' },
   { type: 'canvas/titleChanged', caseName: 'canvasTitleChanged', tsInterface: 'CanvasTitleChangedAction' },
+  { type: 'canvas/iconChanged', caseName: 'canvasIconChanged', tsInterface: 'CanvasIconChangedAction' },
 ];
 
 /** Merged struct for the approved/denied tool call confirmed action */

@@ -108,6 +108,7 @@ public enum ActionType: Codable, Sendable, Equatable {
     case canvasTrustChanged
     case canvasIncarnationChanged
     case canvasTitleChanged
+    case canvasIconChanged
     /// Unknown raw value from a newer protocol version, preserved verbatim.
     case unknown(String)
 
@@ -217,6 +218,7 @@ public enum ActionType: Codable, Sendable, Equatable {
         case "canvas/trustChanged": self = .canvasTrustChanged
         case "canvas/incarnationChanged": self = .canvasIncarnationChanged
         case "canvas/titleChanged": self = .canvasTitleChanged
+        case "canvas/iconChanged": self = .canvasIconChanged
         default: self = .unknown(raw)
         }
     }
@@ -326,6 +328,7 @@ public enum ActionType: Codable, Sendable, Equatable {
         case .canvasTrustChanged: try container.encode("canvas/trustChanged")
         case .canvasIncarnationChanged: try container.encode("canvas/incarnationChanged")
         case .canvasTitleChanged: try container.encode("canvas/titleChanged")
+        case .canvasIconChanged: try container.encode("canvas/iconChanged")
         case .unknown(let raw): try container.encode(raw)
         }
     }
@@ -2466,6 +2469,44 @@ public struct CanvasTitleChangedAction: Codable, Sendable {
     }
 }
 
+public struct CanvasIconChangedAction: Codable, Sendable {
+    public var type: ActionType
+    /// New {@link CanvasState.icon}; `null` removes the current icon.
+    public var icon: Icon?
+    /// The {@link CanvasState.revision} this action results in; see {@link CanvasAvailabilityChangedAction.revision}.
+    public var revision: Int
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case icon
+        case revision
+    }
+
+    public init(
+        type: ActionType,
+        icon: Icon?,
+        revision: Int
+    ) {
+        self.type = type
+        self.icon = icon
+        self.revision = revision
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.type = try container.decode(ActionType.self, forKey: .type)
+        self.icon = try container.decode(Icon?.self, forKey: .icon)
+        self.revision = try container.decode(Int.self, forKey: .revision)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(icon, forKey: .icon)
+        try container.encode(revision, forKey: .revision)
+    }
+}
+
 // MARK: - Partial Summary Types
 
 public struct PartialChatSummary: Codable, Sendable {
@@ -2618,6 +2659,7 @@ public enum StateAction: Codable, Sendable {
     case canvasTrustChanged(CanvasTrustChangedAction)
     case canvasIncarnationChanged(CanvasIncarnationChangedAction)
     case canvasTitleChanged(CanvasTitleChangedAction)
+    case canvasIconChanged(CanvasIconChangedAction)
     /// Unknown or future action type; reducers treat this as a no-op.
     /// The raw payload (including its `type` discriminant) is preserved
     /// as an `AnyCodable` so a decode→encode round-trip re-emits it
@@ -2834,6 +2876,8 @@ public enum StateAction: Codable, Sendable {
             self = .canvasIncarnationChanged(try CanvasIncarnationChangedAction(from: decoder))
         case "canvas/titleChanged":
             self = .canvasTitleChanged(try CanvasTitleChangedAction(from: decoder))
+        case "canvas/iconChanged":
+            self = .canvasIconChanged(try CanvasIconChangedAction(from: decoder))
         default:
             self = .unknown(try AnyCodable(from: decoder))
         }
@@ -2943,6 +2987,7 @@ public enum StateAction: Codable, Sendable {
         case .canvasTrustChanged(let v): try v.encode(to: encoder)
         case .canvasIncarnationChanged(let v): try v.encode(to: encoder)
         case .canvasTitleChanged(let v): try v.encode(to: encoder)
+        case .canvasIconChanged(let v): try v.encode(to: encoder)
         case .unknown(let value): try value.encode(to: encoder)
         }
     }

@@ -9157,6 +9157,9 @@
         },
         {
           "$ref": "#/$defs/CanvasTitleChangedAction"
+        },
+        {
+          "$ref": "#/$defs/CanvasIconChangedAction"
         }
       ],
       "description": "Discriminated union of all state actions."
@@ -11516,6 +11519,35 @@
       "required": [
         "type",
         "title",
+        "revision"
+      ]
+    },
+    "CanvasIconChangedAction": {
+      "type": "object",
+      "description": "Replaces or removes the canvas's display icon.\n\nThis is presentation metadata only. It does not replace the live endpoint,\nchange the canvas incarnation, or replay any canvas effect.",
+      "properties": {
+        "type": {
+          "const": "canvas/iconChanged"
+        },
+        "icon": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Icon"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "New {@link CanvasState.icon}; `null` removes the current icon."
+        },
+        "revision": {
+          "type": "number",
+          "description": "The {@link CanvasState.revision} this action results in; see {@link CanvasAvailabilityChangedAction.revision}."
+        }
+      },
+      "required": [
+        "type",
+        "icon",
         "revision"
       ]
     },
